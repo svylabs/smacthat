@@ -1,0 +1,44 @@
+{
+    "id": "coffee-machine",
+    "name": "Coffee Machine Simulator",
+    "initialState": "idle",
+    "context": {
+        "water": 100,
+        "beans": 100,
+        "cups": 5,
+        "totalRevenue": 0
+    },
+    "states": {
+        "idle": {
+            "label": "Ready",
+            "description": "The machine is idle and waiting for a selection.",
+            "on": {
+                "SELECT_ESPRESSO": {
+                    "to": "brewing",
+                    "label": "Espresso (25% Water, 10% Beans)",
+                    "action": "if (context.water >= 25 && context.beans >= 10 && context.cups > 0) { context.water -= 25; context.beans -= 10; context.cups -= 1; context.totalRevenue += 2; } else { throw new Error('Insufficient resources'); }"
+                },
+                "SELECT_LATTE": {
+                    "to": "brewing",
+                    "label": "Latte (40% Water, 15% Beans)",
+                    "action": "if (context.water >= 40 && context.beans >= 15 && context.cups > 0) { context.water -= 40; context.beans -= 15; context.cups -= 1; context.totalRevenue += 3; } else { throw new Error('Insufficient resources'); }"
+                },
+                "REFILL_RESOURCES": {
+                    "to": "idle",
+                    "label": "Refill All",
+                    "action": "context.water = 100; context.beans = 100; context.cups = 10;"
+                }
+            }
+        },
+        "brewing": {
+            "label": "Brewing Coffee",
+            "description": "Extracting the perfect cup...",
+            "on": {
+                "FINISH": {
+                    "to": "idle",
+                    "label": "Coffee Ready!"
+                }
+            }
+        }
+    }
+}
