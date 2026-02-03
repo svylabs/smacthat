@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>smac-viz | State Machine Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="visualizer-container">
+        <!-- Left: JSON Editor -->
+        <aside class="panel editor-panel" id="editor-panel">
+            <div class="panel-header">
+                <span class="subtitle">Configuration</span>
+                <h2>JSON Editor</h2>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button id="btn-apply-json" class="btn-mini"
+                        style="flex: 1; background: var(--success); border: none; color: white;">Apply Changes</button>
+                    <button id="btn-reset-json" class="btn-mini" style="flex: 1;">Reset to Default</button>
+                </div>
+            </div>
+            <div id="editor-container"
+                style="flex-grow: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--border);"></div>
+        </aside>
+
+        <div id="resizer" class="resizer"></div>
+
+        <!-- Center: Visual Diagram -->
+        <main class="panel mermaid-panel">
+            <div class="panel-header"
+                style="position: absolute; top: 20px; left: 24px; pointer-events: none; z-index: 10;">
+                <span class="subtitle">System Visualization</span>
+                <h1
+                    style="font-family: 'Outfit', sans-serif; font-size: 1.5rem; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+                    smac-viz</h1>
+            </div>
+
+            <div class="zoom-controls">
+                <button onclick="panZoom?.zoomIn()" class="btn-zoom" title="Zoom In">➕</button>
+                <button onclick="panZoom?.zoomOut()" class="btn-zoom" title="Zoom Out">➖</button>
+                <button onclick="panZoom?.fit(); panZoom?.center();" class="btn-zoom" title="Fit to Screen">🎯</button>
+            </div>
+
+            <div id="mermaid-root"></div>
+
+            <div id="error-overlay"
+                style="display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.8); z-index: 100; flex-direction: column; justify-content: center; align-items: center; padding: 40px; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 20px;">⚠️</div>
+                <h2 style="color: #ef4444; margin-bottom: 12px;">Configuration Error</h2>
+                <p id="error-message"
+                    style="color: var(--text-muted); max-width: 400px; line-height: 1.6; font-family: monospace;"></p>
+                <button id="btn-hide-error" class="btn-action"
+                    style="margin-top: 24px; width: auto; padding: 12px 24px;">Close Overlay</button>
+            </div>
+        </main>
+
+        <!-- Right: Controls & Context -->
+        <aside class="panel">
+            <div class="panel-header">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <span class="subtitle">Simulation Controls</span>
+                        <h2 id="current-state-label">Loading...</h2>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="engine.undo()" class="btn-mini" title="Undo Last Step">↩️</button>
+                        <button id="btn-replay" class="btn-mini" title="Replay Sequence">▶️</button>
+                    </div>
+                </div>
+                <p id="current-state-desc" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;"></p>
+            </div>
+
+            <div id="controls-root">
+                <!-- Controls will be injected here -->
+            </div>
+
+            <div id="replay-controls"
+                style="display: none; margin-top: 20px; padding: 16px; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); border-radius: 12px; text-align: center;">
+                <p style="font-size: 0.75rem; color: var(--success); margin-bottom: 12px; font-weight: 600;">REPLAY MODE
+                    ACTIVE</p>
+                <button id="btn-replay-next" class="btn-action"
+                    style="background: var(--success); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                    <span class="label">Next Step in Sequence</span>
+                    <span id="replay-remaining" class="target">3 steps remaining</span>
+                </button>
+                <button onclick="exitReplay()"
+                    style="background: transparent; border: none; color: var(--text-muted); font-size: 0.7rem; cursor: pointer; margin-top: 12px; text-decoration: underline;">Exit
+                    Replay</button>
+            </div>
+
+            <div class="tab-bar" style="margin-top: 24px;">
+                <button class="tab-btn active" onclick="switchTab('context')" id="tab-btn-context">Context</button>
+                <button class="tab-btn" onclick="switchTab('history')" id="tab-btn-history">History</button>
+            </div>
+
+            <div id="panel-context">
+                <div id="state-json" class="state-viewer">{}</div>
+            </div>
+
+            <div id="panel-history" class="hidden">
+                <div id="history-log" class="history-list"></div>
+            </div>
+
+            <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+                <button onclick="engine.reset()" class="btn-option"
+                    style="width: 100%; padding: 12px; background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 12px; cursor: pointer;">Reset
+                    Simulation</button>
+            </div>
+        </aside>
+    </div>
+
+    <script type="module">
+        import { VisualizerEngine } from './engine.js';
+
+        const engine = new VisualizerEngine();
+        window.engine = engine;
+
+        let editor;
+        const DEFAULT_URL = 'default-example.json';
+
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            securityLevel: 'loose',
+            state: { useMaxWidth: false }
+        });
+
+        // Initialize Monaco Editor
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            editor = monaco.editor.create(document.getElementById('editor-container'), {
+                value: '',
+                language: 'json',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                roundedSelection: false,
+                padding: { top: 10 }
+            });
+
+            loadInitialConfig();
+        });
+
+        // Resizer Logic
+        const resizer = document.getElementById('resizer');
+        const editorPanel = document.getElementById('editor-panel');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = Math.max(200, Math.min(window.innerWidth - 450, e.clientX));
+            document.documentElement.style.setProperty('--editor-width', `${newWidth}px`);
+            if (editor) editor.layout();
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isResizing) return;
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+        });
+
+        async function loadInitialConfig() {
+            try {
+                const resp = await fetch(DEFAULT_URL);
+                if (!resp.ok) throw new Error(`HTTP error! status: ${resp.status}`);
+                const config = await resp.json();
+                editor.setValue(JSON.stringify(config, null, 2));
+                applyJsonConfig();
+            } catch (err) {
+                showError("Failed to load default config: " + err.message);
+            }
+        }
+
+        function applyJsonConfig() {
+            try {
+                const content = editor.getValue();
+                const config = JSON.parse(content);
+
+                document.getElementById('error-overlay').style.display = 'none';
+
+                if (engine.listeners.length === 0) {
+                    engine.subscribe(updateUI);
+                }
+                engine.load(config);
+            } catch (err) {
+                showError("Invalid JSON: " + err.message);
+            }
+        }
+
+        function showError(msg) {
+            document.getElementById('error-overlay').style.display = 'flex';
+            document.getElementById('error-message').textContent = msg;
+        }
+
+        document.getElementById('btn-apply-json').onclick = applyJsonConfig;
+        document.getElementById('btn-reset-json').onclick = loadInitialConfig;
+        document.getElementById('btn-hide-error').onclick = () => {
+            document.getElementById('error-overlay').style.display = 'none';
+        };
+
+        function getViewStateKey() {
+            return `visualizer_view_${engine.config?.id}`;
+        }
+
+        let isProgrammatic = true;
+
+        // Listen for manual interaction on the diagram container
+        const mermaidRoot = document.getElementById('mermaid-root');
+        ['mousedown', 'touchstart', 'wheel'].forEach(evt => {
+            mermaidRoot.addEventListener(evt, () => {
+                isProgrammatic = false;
+            }, { passive: true });
+        });
+
+        function saveViewState() {
+            if (!panZoom || !engine.config || isProgrammatic) return;
+            const state = {
+                pan: panZoom.getPan(),
+                zoom: panZoom.getZoom(),
+                scenarioId: engine.config.id
+            };
+            localStorage.setItem(getViewStateKey(), JSON.stringify(state));
+        }
+
+        function loadViewState() {
+            const scenarioId = engine.config?.id;
+            if (!scenarioId) return null;
+            const saved = localStorage.getItem(getViewStateKey());
+            if (!saved) return null;
+            try {
+                const state = JSON.parse(saved);
+                return state.scenarioId === scenarioId ? state : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Initial layout
+        window.switchTab = function (tabId) {
+            document.getElementById('panel-context').classList.toggle('hidden', tabId !== 'context');
+            document.getElementById('panel-history').classList.toggle('hidden', tabId !== 'history');
+            document.getElementById('tab-btn-context').classList.toggle('active', tabId === 'context');
+            document.getElementById('tab-btn-history').classList.toggle('active', tabId === 'history');
+        };
+
+        let panZoom;
+        let lastScenarioId = null;
+
+        async function updateUI(state) {
+            // Check if scenario changed to decide whether to reset zoom
+            const scenarioId = engine.config?.id;
+            const isNewScenario = lastScenarioId !== scenarioId;
+            lastScenarioId = scenarioId;
+
+            // Always try to load saved state for the current scenario
+            const savedState = loadViewState();
+
+            if (panZoom) {
+                panZoom.destroy();
+                panZoom = null;
+            }
+
+            // Update Text
+            document.getElementById('current-state-label').textContent = state.data?.label || state.id;
+            document.getElementById('current-state-desc').textContent = state.data?.description || '';
+            document.getElementById('state-json').textContent = JSON.stringify(state.context, null, 2);
+
+            // Update History
+            const historyLog = document.getElementById('history-log');
+            if (historyLog) {
+                historyLog.innerHTML = state.history.slice().reverse().map(h => `
+                    <div class="history-item">
+                        <span class="time">${h.timestamp}</span>
+                        <span class="event">${h.event}</span>
+                        <div style="font-size: 0.7rem; opacity: 0.6;">To: ${h.state}</div>
+                    </div>
+                `).join('');
+            }
+
+            // Update Mermaid
+            try {
+                const container = document.getElementById('mermaid-root');
+                container.removeAttribute('data-processed');
+                container.innerHTML = state.mermaid;
+
+                await mermaid.run({ nodes: [container] });
+
+                const svg = container.querySelector('svg');
+                if (svg) {
+                    isProgrammatic = true;
+                    panZoom = svgPanZoom(svg, {
+                        zoomEnabled: true,
+                        controlIconsEnabled: false,
+                        fit: !savedState,
+                        center: !savedState,
+                        minZoom: 0.05,
+                        maxZoom: 20,
+                        onZoom: () => saveViewState(),
+                        onPan: () => saveViewState()
+                    });
+                    window.panZoom = panZoom;
+
+                    if (savedState) {
+                        panZoom.zoom(savedState.zoom);
+                        panZoom.pan(savedState.pan);
+                    }
+                }
+            } catch (err) {
+                console.error("Mermaid/PanZoom Error:", err);
+            }
+
+            // Update Controls
+            renderControls(state);
+        }
+
+        function renderControls(state) {
+            const root = document.getElementById('controls-root');
+            root.innerHTML = '';
+
+            const events = Object.entries(state.availableEvents || {});
+            if (events.length === 0) {
+                root.innerHTML = '<p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No actions available in this state.</p>';
+                return;
+            }
+
+            events.forEach(([id, trans]) => {
+                const group = document.createElement('div');
+                group.className = 'input-group';
+
+                const btn = document.createElement('button');
+                btn.className = 'btn-action';
+                btn.innerHTML = `
+                    <span class="label">${trans.label || id}</span>
+                    <span class="target">→ ${state.id !== trans.to ? trans.to : 'Self'}</span>
+                `;
+
+                // Render inputs if any
+                if (trans.inputs) {
+                    trans.inputs.forEach(input => {
+                        const field = document.createElement('div');
+                        field.className = 'input-field';
+
+                        if (input.type === 'table') {
+                            field.innerHTML = `
+                                <label>${input.label || input.name}</label>
+                                <div class="table-input-container">
+                                    <table class="input-table" id="table-${id}-${input.name}">
+                                        <thead>
+                                            <tr>
+                                                ${input.columns.map(c => `<th>${c.label || c.name}</th>`).join('')}
+                                                <th style="width: 30px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Rows injected here -->
+                                        </tbody>
+                                    </table>
+                                    <button class="btn-table-add" onclick="addTableRow('${id}', '${input.name}', ${JSON.stringify(input.columns).replace(/"/g, '&quot;')})">
+                                        + Add Row
+                                    </button>
+                                </div>
+                            `;
+                        } else {
+                            field.innerHTML = `
+                                <label>${input.label || input.name}</label>
+                                <input type="${input.type || 'text'}" 
+                                       id="input-${id}-${input.name}" 
+                                       value="${input.default || ''}">
+                            `;
+                        }
+                        group.appendChild(field);
+                    });
+                }
+
+                btn.onclick = () => {
+                    const finalInputs = {};
+                    if (trans.inputs) {
+                        trans.inputs.forEach(input => {
+                            if (input.type === 'table') {
+                                // Collect all rows from the table
+                                const table = document.getElementById(`table-${id}-${input.name}`);
+                                const rows = table.querySelectorAll('.table-row');
+                                finalInputs[input.name] = Array.from(rows).map(row => {
+                                    const rowData = {};
+                                    input.columns.forEach(col => {
+                                        const el = row.querySelector(`[data-col="${col.name}"]`);
+                                        rowData[col.name] = col.type === 'number' ? parseFloat(el.value) : el.value;
+                                    });
+                                    return rowData;
+                                });
+                            } else {
+                                const val = document.getElementById(`input-${id}-${input.name}`).value;
+                                finalInputs[input.name] = input.type === 'number' ? parseFloat(val) : val;
+                            }
+                        });
+                    }
+                    const result = engine.send(id, finalInputs);
+                    if (result && result.error) {
+                        alert("Action Error: " + result.error);
+                    }
+                };
+
+                group.appendChild(btn);
+                root.appendChild(group);
+            });
+        }
+
+        window.addTableRow = function (eventId, inputName, columns) {
+            const tbody = document.querySelector(`#table-${eventId}-${inputName} tbody`);
+            const row = document.createElement('tr');
+            row.className = 'table-row';
+
+            let cells = columns.map(col => `
+                <td>
+                    <input type="${col.type === 'number' ? 'number' : 'text'}" 
+                           data-col="${col.name}" 
+                           value="${col.default || ''}">
+                </td>
+            `).join('');
+
+            cells += `<td><button class="btn-table-del" onclick="this.closest('tr').remove()">✕</button></td>`;
+            row.innerHTML = cells;
+            tbody.appendChild(row);
+        };
+
+        let replayQueue = [];
+
+        window.exitReplay = function () {
+            replayQueue = [];
+            document.getElementById('replay-controls').style.display = 'none';
+            document.getElementById('controls-root').style.display = 'block';
+        };
+
+        document.getElementById('btn-replay').onclick = () => {
+            const history = engine.history;
+            if (history.length <= 1) return;
+
+            // Extract sequence excluding initial state
+            replayQueue = history.slice(1).map(h => ({
+                event: h.event,
+                input: h.input
+            }));
+
+            engine.reset();
+
+            document.getElementById('replay-controls').style.display = 'block';
+            document.getElementById('controls-root').style.display = 'none';
+            document.getElementById('replay-remaining').textContent = `${replayQueue.length} steps remaining`;
+        };
+
+        document.getElementById('btn-replay-next').onclick = () => {
+            if (replayQueue.length === 0) return;
+
+            const next = replayQueue.shift();
+            engine.send(next.event, next.input);
+
+            if (replayQueue.length === 0) {
+                setTimeout(() => {
+                    alert("Replay Finished!");
+                    exitReplay();
+                }, 100);
+            } else {
+                document.getElementById('replay-remaining').textContent = `${replayQueue.length} steps remaining`;
+            }
+        };
+    </script>
+</body>
+
+</html>
