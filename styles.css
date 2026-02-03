@@ -354,6 +354,10 @@ h2 {
         display: flex;
     }
 
+    .sidebar.active~.main-content .sidebar-toggle-btn {
+        display: none;
+    }
+
     .mobile-only {
         display: block;
     }
