@@ -160,6 +160,7 @@
         let isResizing = false;
 
         resizer.addEventListener('mousedown', (e) => {
+            if (window.innerWidth <= 1024) return; // Disable resizer on mobile/tablet
             isResizing = true;
             resizer.classList.add('active');
             document.body.style.cursor = 'col-resize';
